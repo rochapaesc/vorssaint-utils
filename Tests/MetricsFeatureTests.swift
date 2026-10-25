@@ -387,6 +387,49 @@ enum MetricsFeatureTests {
                                              batteryWatts: -4,
                                              externalConnected: true) == nil,
                "battery flow alone does not claim total system power while plugged in")
+        suite.expect(MetricFormat.systemPowerWatts(measured: nil,
+                                             batteryWatts: nil,
+                                             externalConnected: true) == nil,
+               "a desktop without a system sensor does not claim adapter input as system power")
+        suite.expect(MetricFormat.systemPowerWatts(measured: 30,
+                                             batteryWatts: nil,
+                                             externalConnected: true) == 30,
+               "a desktop keeps its independent system total sensor")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: nil,
+                                                   dcInRailWatts: 198,
+                                                   hasInternalBattery: false,
+                                                   externalConnected: true) == 198,
+               "a desktop reports its DC-In rail as adapter input when the adapter total is unavailable")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: 210,
+                                                   dcInRailWatts: 198,
+                                                   hasInternalBattery: false,
+                                                   externalConnected: true) == 210,
+               "the measured adapter total takes priority over the desktop rail")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: 210,
+                                                   dcInRailWatts: 198,
+                                                   hasInternalBattery: false,
+                                                   externalConnected: false) == 210,
+               "the measured adapter total does not depend on a power-connection flag")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: nil,
+                                                   dcInRailWatts: 198,
+                                                   hasInternalBattery: false,
+                                                   externalConnected: false) == nil,
+               "a desktop without a confirmed power connection does not use the DC-In rail")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: nil,
+                                                   dcInRailWatts: 13,
+                                                   hasInternalBattery: true,
+                                                   externalConnected: true) == nil,
+               "a Mac with a battery never uses the desktop DC-In rail fallback")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: 13,
+                                                   dcInRailWatts: 198,
+                                                   hasInternalBattery: true,
+                                                   externalConnected: true) == 13,
+               "a Mac with a battery keeps its measured adapter input")
+        suite.expect(MetricFormat.adapterPowerWatts(measured: nil,
+                                                   dcInRailWatts: nil,
+                                                   hasInternalBattery: false,
+                                                   externalConnected: true) == nil,
+               "an unavailable desktop rail does not create an adapter reading")
 
         // MARK: Peripheral battery helpers
 
@@ -757,8 +800,8 @@ enum MetricsFeatureTests {
         // machines that lost it rather than against invented keys.
         //
         // Mac mini (2020), Macmini9,1, Apple M1, reported on 3.3.2 (issue
-        // #1353): not one of its sensors is in this chip generation's mapped
-        // core set, which is what 3.3.3 then required before showing anything.
+        // #1353): none of its sensors were in the original M1 core set,
+        // which is what 3.3.3 required before showing anything.
         let macMini9_1M1Sensors: [(key: String, value: Double)] = [
             ("Te0a", 36.31), ("Te0b", 36.31), ("Te0x", 38.08), ("Te0z", 38.08),
             ("Te3a", 37.95), ("Te3b", 46.65), ("Te3x", 40.02), ("Te3z", 60.02),
@@ -777,6 +820,14 @@ enum MetricsFeatureTests {
             TemperatureSensorSelector.isCPUCoreKey($0.key, platform: .appleM1Family)
         }.map(\.key) == ["Te0a", "Te3a", "Tp2a", "Tp3a", "Tp4a", "Tp5a", "Tp7a", "Tp8a", "Tp9a"],
                "this M1 layout maps only its a variants as cores")
+        let otherMappedPlatforms: [CPUTemperaturePlatform] = [
+            .appleM2Family, .appleM3Family, .appleM4Family, .appleM4ProFamily, .appleM5Family,
+        ]
+        for platform in otherMappedPlatforms {
+            suite.expect(!macMini9_1M1Sensors.contains {
+                TemperatureSensorSelector.isCPUCoreKey($0.key, platform: platform)
+            }, "the alternate M1 layout does not become a core set on another chip generation")
+        }
         // 3.3.4 showed 64.61 here, the Tp4z variant, which reads well above
         // the die sensors.
         suite.expectClose(TemperatureSensorSelector.displayedCPUTemperature(
